@@ -13,6 +13,8 @@
 #include "Components/ProgressBar.h"// Set ProgressBar
 #include "Components/TextBlock.h"
 #include "Internationalization/Text.h"
+#include "TimerManager.h"// Use to compute StaminaCost and StaminaRestore
+#include "Kismet/KismetSystemLibrary.h"// Use for Delay
 #include "Weapon.h"
 #include "PilotHUD.h"
 #include "Engine/Engine.h"// 用来输出到屏幕的工具
@@ -22,11 +24,16 @@ APilot::APilot()
 {
 	//Initial Properties
 	MaxHeath = 1.0f;
-	Heath = 0.39f;
 	MaxStamina = 1.0f;
-	Stamina = 0.2f;
+	StaminaCost = 0.1f;
+	StaminaRecharge = 0.05f;
+	Heath = MaxHeath;
+	Stamina = MaxStamina;
 
-	WeaponAttachSocketName = "WeaponSocket";
+	//Initial Dev varibles
+	IsSprinting = false;
+
+	WeaponAttachSocketName = "weapon_socket";
 
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
@@ -63,9 +70,9 @@ void APilot::BeginPlay()
 		if (HUD) {
 			HUD->AddToViewport();
 			if (HUD->heathBar)
-				HUD->heathBar->SetPercent(Heath / MaxHeath);
+				HUD->heathBar->SetPercent(0.1);
 			if (HUD->staminaBar)
-				HUD->staminaBar->SetPercent(Stamina / MaxStamina);
+				HUD->staminaBar->SetPercent(0.9);
 			if (HUD->AmmoText)
 				HUD->AmmoText->SetText(FText::FromString(FString::FromInt(20)));
 			if (HUD->MaxAmmoText)
@@ -79,6 +86,7 @@ void APilot::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	ZoomTimeline.TickTimeline(DeltaTime);// Zoom
+	SprintRestore();
 }
 
 void APilot::LoadWeapon()
@@ -109,7 +117,7 @@ void APilot::StartFire()
 	if (CurrentWeapon) {
 		CurrentWeapon->StartFire();
 	}
-	if (!CurrentWeapon) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Weapon!!!!!!"), false);
+	else GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Weapon!!!!!!"), false);
 }
 
 void APilot::StopFire()
@@ -117,7 +125,7 @@ void APilot::StopFire()
 	if (CurrentWeapon) {
 		CurrentWeapon->StopFire();
 	}
-	if (!CurrentWeapon) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Weapon~~~~~~"), false);
+	else GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Weapon~~~~~~"), false);
 }
 
 
@@ -161,12 +169,45 @@ void APilot::DoZoom(float FieldOfView)
 
 void APilot::SprintBegin()
 {
-	GetCharacterMovement()->MaxWalkSpeed = 2200;
+	if (Stamina >= StaminaCost) {
+		IsSprinting = true;
+		GetCharacterMovement()->MaxWalkSpeed = 2200;
+		GetWorldTimerManager().SetTimer(SprintTimerHandle, this, &APilot::SprintDrain, 0.5f, true);
+	}
+
 }
 
 void APilot::SprintEnd()
 {
+	IsSprinting = false;
 	GetCharacterMovement()->MaxWalkSpeed = 600;
+	GetWorldTimerManager().ClearTimer(SprintTimerHandle);
+}
+
+void APilot::SprintRestore()
+{
+	if (!IsSprinting) {
+		FLatentActionInfo LatentInfo;
+		LatentInfo.Linkage = 0;
+		LatentInfo.CallbackTarget = this;
+		LatentInfo.ExecutionFunction = "RechargeStamina";
+		LatentInfo.UUID = __LINE__;
+		UKismetSystemLibrary::Delay(GetWorld(), 0.2f, LatentInfo);
+	}
+}
+
+void APilot::SprintDrain()
+{
+	float newStamina = Stamina - StaminaCost;
+	Stamina = newStamina > 0 ? newStamina : 0;
+	if (newStamina <= 0)
+		SprintEnd();
+}
+
+void APilot::RechargeStamina()
+{
+	float newStamina = Stamina + StaminaRecharge;
+	Stamina = newStamina > 1 ? 1 : newStamina;
 }
 
 // Called to bind functionality to input

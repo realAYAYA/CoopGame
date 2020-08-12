@@ -26,7 +26,7 @@ protected:
 	float Stamina;
 	float MaxStamina;
 	float StaminaCost;
-	float StaminaRestore;
+	float StaminaRecharge;
 
 	//Run when created
 	
@@ -34,7 +34,7 @@ protected:
 	void LoadWeapon();
 
 	// Tick
-	void UpdateHUD();
+	void UpdateHUD(); //Run in Tick
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class USpringArmComponent* SpringArm;
@@ -65,12 +65,18 @@ protected:
 	FTimeline ZoomTimeline;
 	void ZoomBegin();
 	void ZoomEnd();
-
 	UFUNCTION()
 	void DoZoom(float FieldOfView);
 
+	bool IsSprinting;
+	FTimerHandle SprintTimerHandle;
 	void SprintBegin();
 	void SprintEnd();
+	void SprintRestore();// Run in Tick
+	UFUNCTION()
+	void SprintDrain();
+	UFUNCTION()
+	void RechargeStamina();// Delay CallBack
 
 public:	
 	// Called every frame
