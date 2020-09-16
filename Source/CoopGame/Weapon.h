@@ -6,6 +6,15 @@
 #include "GameFramework/Actor.h"
 #include "Weapon.generated.h"
 
+USTRUCT()
+struct FHitScanTrace// Using to synchronism fire effects
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY()
+	uint8 BurstCounter;
+};
+
 UCLASS()
 class COOPGAME_API AWeapon : public AActor
 {
@@ -20,16 +29,12 @@ protected:
 	virtual void BeginPlay() override;
 
 	//Property
-	int Ammo;
-	int MaxAmmo;
 	UPROPERTY(EditDefaultsOnly, Category = "Bullet")
 	float FiringRate;
 	int FireModle;
 	float TimeBetweenShoots;
 	FTimerHandle TimeHandle_TimeBetweenShoots;
 	float LastFireTime;
-	
-
 
 	// 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
@@ -65,10 +70,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
 	TSubclassOf<UCameraShake> FireCameraShake;
 
+	UPROPERTY(ReplicatedUsing=OnRep_HitScanTrace)// 这个宏的作用在于实时监控变量的改变,并绑定回调函数
+	FHitScanTrace HitScanTrace;
+	UFUNCTION()
+	void OnRep_HitScanTrace();
+
 public:	
+	int Ammo;
+	int MaxAmmo;
 	// Called every frame
+	UFUNCTION(Server, Reliable, WithValidation)
+	void SeverFire();
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void OnFire();
 	void StartFire();
 	void StopFire();
+	void PlayFireEffects();
 };

@@ -10,6 +10,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Particles/ParticleSystemComponent.h"// 粒子特效头文件
 #include "GameFramework/Pawn.h"
+#include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "Bullet.h"
 
@@ -24,9 +25,11 @@ AWeapon::AWeapon()
 	MuzzleSocketName = "bullet_socket";
 	TracerTargetName = "Target";
 
-	Ammo = 20;
+	Ammo = 31;
 	MaxAmmo = 31;
 	FiringRate = 600;// Shoots per min
+
+	SetReplicates(true);// Open network function:Make client replicate server's actions
 }
 
 // Called when the game starts or when spawned
@@ -36,13 +39,41 @@ void AWeapon::BeginPlay()
 	TimeBetweenShoots = 60 / FiringRate;// Second per shoot
 }
 
+void AWeapon::SeverFire_Implementation()
+{
+	OnFire();
+}
+bool AWeapon::SeverFire_Validate()
+{
+	return true;
+}
+
+void AWeapon::OnRep_HitScanTrace()
+{
+	if (Bullet != NULL)
+	{
+		FActorSpawnParameters ActorSpawnParams;
+		ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+		FTransform  SpawnLocation = MeshComponent->GetSocketTransform(MuzzleSocketName);
+		GetWorld()->SpawnActor<ABullet>(Bullet, SpawnLocation, ActorSpawnParams);
+		PlayFireEffects();
+	}
+}
+
 void AWeapon::OnFire()
 {
+	if (GetLocalRole() < ROLE_Authority) {// if you are not server
+		SeverFire();// Network:Make sever's client character fire
+		//return;
+	}
+
+	if (GetLocalRole() == ROLE_Authority) {// Network:Synchronism client's actions while sever fire
+		HitScanTrace.BurstCounter++;
+	}
+
 	if (Ammo <= 0) {
+		PlayFireEffects();
 		return;
-		if (NoAmmoSound) {
-			UGameplayStatics::PlaySoundAtLocation(this, NoAmmoSound, GetActorLocation(), 0.2f);
-		}
 	}
 
 	// try and fire a projectile
@@ -52,21 +83,11 @@ void AWeapon::OnFire()
 		ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
 		FTransform  SpawnLocation = MeshComponent->GetSocketTransform(MuzzleSocketName);
 		GetWorld()->SpawnActor<ABullet>(Bullet, SpawnLocation, ActorSpawnParams);
-		// try to play the sound if specified
-		if (FireSound != NULL)
-		{
-			UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(), 0.2f);
-		}
+
+		PlayFireEffects();
+		Ammo--;
 	}
-	//Shake Camera
-	APawn* MyOwner = Cast<APawn>(GetOwner());
-	if (MyOwner) {
-		APlayerController* PC = Cast<APlayerController>(MyOwner->GetController());
-		if (PC) {
-			PC->ClientPlayCameraShake(FireCameraShake);
-		}
-	}
-	Ammo--;
+
 	LastFireTime = GetWorld()->TimeSeconds;// Note last time shoot
 }
 
@@ -79,6 +100,35 @@ void AWeapon::StartFire()
 void AWeapon::StopFire()
 {
 	GetWorldTimerManager().ClearTimer(TimeHandle_TimeBetweenShoots);
+}
+
+void AWeapon::PlayFireEffects()
+{
+	if (Ammo<=0) {
+		if (NoAmmoSound) {
+			UGameplayStatics::PlaySoundAtLocation(this, NoAmmoSound, GetActorLocation(), 0.2f);
+		}
+	}
+	else {
+		if (FireSound != NULL)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(), 0.2f);
+			//Shake Camera
+			APawn* MyOwner = Cast<APawn>(GetOwner());
+			if (MyOwner) {
+				APlayerController* PC = Cast<APlayerController>(MyOwner->GetController());
+				if (PC) {
+					PC->ClientPlayCameraShake(FireCameraShake);
+				}
+			}
+		}
+	}
+}
+
+void AWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const //Rewrite GetLifetimeReplicated() to 
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME_CONDITION(AWeapon, HitScanTrace, COND_SkipOwner);
 }
 
 
@@ -97,7 +147,8 @@ void NoUse() {
 		QueryParam.AddIgnoredActor(MyOwner);// Ignore Player
 		QueryParam.AddIgnoredActor(this);// Ignore Weapon
 		QueryParam.bTraceComplex = true;// Open ComplexTrace
-		if (GetWorld()->LineTraceSingleByChannel(Hit, EyeLocation, TraceEnd, ECC_Visibility, QueryParam)) {
+		if (GetWorld()->LineTraceSingleByChannel(Hit, EyeLocation, TraceEnd, ECC_Visibility, QueryParam)) //第四个变量可以是自定义的碰撞通道
+		{
 			AActor* HitActor = Hit.GetActor();
 			UGameplayStatics::ApplyPointDamage(HitActor, 20, EyeRotator.Vector(), Hit, MyOwner->GetInstigatorController(), this, DamageType);
 

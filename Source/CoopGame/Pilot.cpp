@@ -6,6 +6,7 @@
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PawnMovementComponent.h"//这个组件用来设置MovementComponent的
+#include "Components/CapsuleComponent.h"
 #include "Engine/World.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -15,23 +16,26 @@
 #include "Internationalization/Text.h"
 #include "TimerManager.h"// Use to compute StaminaCost and StaminaRestore
 #include "Kismet/KismetSystemLibrary.h"// Use for Delay
+#include "Net/UnrealNetwork.h"
 #include "Weapon.h"
 #include "PilotHUD.h"
+#include "Componets/PilotHeathComponent.h"
 #include "Engine/Engine.h"// 用来输出到屏幕的工具
 
 // Sets default values
 APilot::APilot()
 {
-	//Initial Properties
+	// Initial Properties
 	MaxHeath = 1.0f;
 	MaxStamina = 1.0f;
 	StaminaCost = 0.1f;
-	StaminaRecharge = 0.05f;
+	StaminaRecharge = 0.02f;
 	Heath = MaxHeath;
 	Stamina = MaxStamina;
 
-	//Initial Dev varibles
+	// Initial Statis
 	IsSprinting = false;
+	bDied = false;
 
 	WeaponAttachSocketName = "weapon_socket";
 
@@ -46,6 +50,8 @@ APilot::APilot()
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	Camera->SetupAttachment(SpringArm);
 
+	HealthComponet = CreateDefaultSubobject<UPilotHeathComponent>(TEXT("HealthComponent"));
+
 	//Set MovementComponent
 	GetMovementComponent()->GetNavAgentPropertiesRef().bCanCrouch = true;//设置这个才能启用组件自带的蹲起方法。
 }
@@ -55,6 +61,8 @@ void APilot::BeginPlay()
 {
 	Super::BeginPlay();
 	LoadWeapon();
+
+	HealthComponet->OnHealthChanged.AddDynamic(this, &APilot::OnHealthChanged);
 
 	FloatCurve = NewObject<UCurveFloat>();
 	FloatCurve->FloatCurve.AddKey(0, 90);
@@ -73,10 +81,10 @@ void APilot::BeginPlay()
 				HUD->heathBar->SetPercent(0.1);
 			if (HUD->staminaBar)
 				HUD->staminaBar->SetPercent(0.9);
-			if (HUD->AmmoText)
-				HUD->AmmoText->SetText(FText::FromString(FString::FromInt(20)));
+			//if (HUD->AmmoText&&CurrentWeapon)
+				//HUD->AmmoText->SetText(FText::FromString(FString::FromInt(0)));
 			if (HUD->MaxAmmoText)
-				HUD->MaxAmmoText->SetText(FText::FromString(FString::FromInt(61)));
+				HUD->MaxAmmoText->SetText(FText::FromString(FString::FromInt(31)));
 		}
 	}
 }
@@ -87,16 +95,19 @@ void APilot::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	ZoomTimeline.TickTimeline(DeltaTime);// Zoom
 	SprintRestore();
+	UpdateHUD();
 }
 
 void APilot::LoadWeapon()
 {
-	FActorSpawnParameters SpawnParams;// 创建生成参数
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;// 设置参数：有碰撞时仍要生成
-	CurrentWeapon = GetWorld()->SpawnActor<AWeapon>(StartWeaponClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
-	if (CurrentWeapon) {
-		CurrentWeapon->SetOwner(this);
-		CurrentWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponAttachSocketName);
+	if (GetLocalRole() == ROLE_Authority) {
+		FActorSpawnParameters SpawnParams;// 创建生成参数
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;// 设置参数：有碰撞时仍要生成
+		CurrentWeapon = GetWorld()->SpawnActor<AWeapon>(StartWeaponClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+		if (CurrentWeapon) {
+			CurrentWeapon->SetOwner(this);
+			CurrentWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponAttachSocketName);
+		}
 	}
 }
 
@@ -107,8 +118,8 @@ void APilot::UpdateHUD()
 			HUD->heathBar->SetPercent(Heath / MaxHeath);
 		if (HUD->staminaBar)
 			HUD->staminaBar->SetPercent(Stamina / MaxStamina);
-		if (HUD->AmmoText)
-			HUD->AmmoText->SetText(FText::FromString(FString::FromInt(15)));
+		if (HUD->AmmoText&&CurrentWeapon)
+			HUD->AmmoText->SetText(FText::FromString(FString::FromInt(CurrentWeapon->Ammo)));
 	}
 }
 
@@ -117,7 +128,6 @@ void APilot::StartFire()
 	if (CurrentWeapon) {
 		CurrentWeapon->StartFire();
 	}
-	else GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Weapon!!!!!!"), false);
 }
 
 void APilot::StopFire()
@@ -125,7 +135,6 @@ void APilot::StopFire()
 	if (CurrentWeapon) {
 		CurrentWeapon->StopFire();
 	}
-	else GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Weapon~~~~~~"), false);
 }
 
 
@@ -164,7 +173,7 @@ void APilot::DoZoom(float FieldOfView)
 	if (Camera) {
 		Camera->SetFieldOfView(FieldOfView);
 	}
-	if (!Camera) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Camera!!!!!!"), false);
+	if (!Camera) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Camera lost!!!"), false);
 }
 
 void APilot::SprintBegin()
@@ -210,6 +219,16 @@ void APilot::RechargeStamina()
 	Stamina = newStamina > 1 ? 1 : newStamina;
 }
 
+void APilot::OnHealthChanged(UPilotHeathComponent* OwnerHealthComp, float Health, float HeathDelta, const class UDamageType* DamageType, class AController* InstigatedBy, AActor* DamageCauser)
+{
+	if (bDied)
+		return;
+	if (Health <= 0 && !bDied) // 角色死亡并令其控制瘫痪
+	{
+		SetDeath();
+	}
+}
+
 // Called to bind functionality to input
 void APilot::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -237,3 +256,18 @@ void APilot::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &APilot::StopFire);
 }
 
+void APilot::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const //Rewrite GetLifetimeReplicated() to 
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(APilot, CurrentWeapon);
+}
+
+void APilot::SetDeath()
+{
+	bDied = true;
+	GetMovementComponent()->StopMovementImmediately();
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	DetachFromControllerPendingDestroy();
+	SetLifeSpan(3);
+}

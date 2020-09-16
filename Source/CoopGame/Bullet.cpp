@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "Pilot.h"
 
 // Sets default values
@@ -16,7 +17,8 @@ ABullet::ABullet()
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	Mesh->SetupAttachment(RootComponent);
 	Mesh->SetGenerateOverlapEvents(true);//打开碰撞检测
-	Mesh->OnComponentHit.AddDynamic(this, &ABullet::OnHit);//设置事件触发委托
+	Mesh->OnComponentBeginOverlap.AddDynamic(this, &ABullet::OnHit);//设置事件触发委托
+	this->OnDestroyed.AddDynamic(this, &ABullet::DestroyHandler);
 
 	// Set as root component
 	RootComponent = Mesh;
@@ -37,13 +39,20 @@ void ABullet::BeginPlay()
 
 }
 
-void ABullet::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)//碰撞事件
+void ABullet::OnHit(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)//碰撞事件
 {
-	if (OtherActor->IsA<APilot>()) {
-		OtherActor->Destroy();
+	APilot* Target = Cast<APilot>(OtherActor);
+	if (Target!=nullptr) {
+		FCollisionQueryParams QuryParams;
+		QuryParams.bReturnPhysicalMaterial = true;
+		Target->SetDeath();
+		this->Destroy();
 		if (HitSound) {
 			UGameplayStatics::PlaySound2D(this, HitSound);
 		}
-		this->Destroy();
 	}
+}
+
+void ABullet::DestroyHandler(AActor* DestroyActor)
+{
 }

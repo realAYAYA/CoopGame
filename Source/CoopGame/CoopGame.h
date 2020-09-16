@@ -4,5 +4,7 @@
 
 #include "CoreMinimal.h"
 
-#define SURFACE_FLASHDEFAULT		SurfaceType1;
-#define SURFACE_FLASHDVULNERABLE	SurfaceType2;
+#define MS_CRITICAL_STRIKE	SurfaceType1;
+#define MS_NORMAL_STRIKE	SurfaceType2;
+#define PILOT_NORMAL_STRIKE	SurfaceType3;
+#define PILOT_NORMAL_STRIKE	SurfaceType4;

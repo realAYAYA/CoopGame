@@ -20,13 +20,17 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 	
-	//Properties
+	// Properties
 	float Heath;
 	float MaxHeath;
 	float Stamina;
 	float MaxStamina;
 	float StaminaCost;
 	float StaminaRecharge;
+
+	// Status
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Status")
+	bool bDied;
 
 	//Run when created
 	
@@ -41,6 +45,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class UCameraComponent* Camera;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class UPilotHeathComponent* HealthComponet;
+
+	UPROPERTY(Replicated)
 	class AWeapon* CurrentWeapon;
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
 	TSubclassOf<AWeapon>StartWeaponClass;
@@ -77,6 +85,10 @@ protected:
 	void SprintDrain();
 	UFUNCTION()
 	void RechargeStamina();// Delay CallBack
+	
+	// Events
+	UFUNCTION()
+	void OnHealthChanged(UPilotHeathComponent* OwnerHealthComp, float Health, float HeathDelta, const class UDamageType* DamageType, class AController* InstigatedBy, AActor* DamageCauser);
 
 public:	
 	// Called every frame
@@ -84,5 +96,8 @@ public:
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	
+	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	void SetDeath();
 };
